@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>RGMS.Lib</RootNamespace>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <!--
+    NI-DAQmx managed assemblies are not on nuget.org; they ship with the NI-DAQmx driver installer (Windows only).
+    Override $(NIDAQmxAssemblyPath) on the Windows build machine if the assemblies live somewhere non-default.
+    Typical locations after a recent NI-DAQmx driver install:
+      C:\Program Files (x86)\National Instruments\MeasurementStudioVS2022\DotNET\Assemblies\Current
+      C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\references\NetCore
+  -->
+  <PropertyGroup>
+    <NIDAQmxAssemblyPath Condition="'$(NIDAQmxAssemblyPath)' == '' AND '$(OS)' == 'Windows_NT'">$(ProgramFiles) (x86)\National Instruments\MeasurementStudioVS2022\DotNET\Assemblies\Current</NIDAQmxAssemblyPath>
+    <NIDAQmxAvailable Condition="'$(TargetFramework)' == 'net8.0-windows' AND Exists('$(NIDAQmxAssemblyPath)\NationalInstruments.DAQmx.dll')">true</NIDAQmxAvailable>
+    <NIDAQmxAvailable Condition="'$(NIDAQmxAvailable)' == ''">false</NIDAQmxAvailable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NIDAQmxAvailable)' == 'true'">
+    <DefineConstants>$(DefineConstants);NI_DAQMX</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NIDAQmxAvailable)' == 'true'">
+    <Reference Include="NationalInstruments.DAQmx">
+      <HintPath>$(NIDAQmxAssemblyPath)\NationalInstruments.DAQmx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="NationalInstruments.Common">
+      <HintPath>$(NIDAQmxAssemblyPath)\NationalInstruments.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Exclude the real DaqService from compilation when NI-DAQmx assemblies aren't available -->
+  <ItemGroup Condition="'$(NIDAQmxAvailable)' != 'true'">
+    <Compile Remove="Service/DaqService.cs" />
+  </ItemGroup>
+
+</Project>
