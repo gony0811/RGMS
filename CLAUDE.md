@@ -10,18 +10,23 @@ At present the codebase is the default `dotnet new blazor` scaffold (Counter / W
 
 ## Repository layout
 
-The git root is `/RGMS/`; the actual project lives one level deeper in `/RGMS/RGMS/`. Run all `dotnet` commands from `RGMS/RGMS/` (where `RGMS.csproj` and `RGMS.sln` live), not from the git root.
+The git root (`C:\GitHub\RGMS\`) is the **solution root**: `RGMS.sln` and `global.json` live here. Each project sits in its own subfolder:
+
+- `RGMS/` — ASP.NET Core Blazor web project (`RGMS.csproj`, `Program.cs`, `Components/`, `wwwroot/`, `appsettings*.json`).
+- `RGMS.Lib/` — class library (`RGMS.Lib.csproj`) with the DAQ service, EF Core `RgmsDbContext`, entities, and migrations under `RGMS.Lib/Data/Migrations/`.
+
+Run all `dotnet` commands from the solution root (git root), not from inside a project folder.
 
 ## Commands
 
-All commands run from `RGMS/RGMS/`:
+All commands run from the solution root (`C:\GitHub\RGMS\`):
 
-```bash
-dotnet restore                  # restore packages
-dotnet build                    # build
-dotnet run                      # run (uses "http" profile by default → http://localhost:5077)
-dotnet run --launch-profile https   # run with HTTPS → https://localhost:7071
-dotnet watch                    # hot-reload dev loop
+```powershell
+dotnet restore                              # restore packages
+dotnet build                                # build entire solution
+dotnet run --project RGMS                   # run web app (http profile → http://localhost:5077)
+dotnet run --project RGMS --launch-profile https   # HTTPS → https://localhost:7071
+dotnet watch --project RGMS                 # hot-reload dev loop
 ```
 
 No test project exists yet; `dotnet test` will be a no-op until one is added.

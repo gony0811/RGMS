@@ -1,8 +1,28 @@
+using System.Runtime.Loader;
 using Microsoft.EntityFrameworkCore;
 using RGMS.Components;
 using RGMS.Lib.Data;
 using RGMS.Lib.Data.Extensions;
 using RGMS.Lib.Service.Extensions;
+
+// NI-DAQmx (NationalInstruments.DAQmx / Common) are .NET Framework 4.x assemblies
+// copied to our output via RGMS.Lib's <Private>true</Private> reference. SDK-style
+// ProjectReference does not propagate the library's file references into the
+// consuming app's .deps.json, so .NET 8's host fails to seed TPA with them and
+// the JIT throws FileNotFoundException on first DaqSystem call. Probe app-base
+// directly to bridge that gap.
+if (OperatingSystem.IsWindows())
+{
+    AssemblyLoadContext.Default.Resolving += static (ctx, name) =>
+    {
+        if (name.Name is not ("NationalInstruments.DAQmx" or "NationalInstruments.Common"))
+            return null;
+        var path = Path.Combine(AppContext.BaseDirectory, name.Name + ".dll");
+        if (!File.Exists(path)) return null;
+        Console.WriteLine($"[NI resolver] loading {name.Name} from {path}");
+        return ctx.LoadFromAssemblyPath(path);
+    };
+}
 
 var builder = WebApplication.CreateBuilder(args);
 

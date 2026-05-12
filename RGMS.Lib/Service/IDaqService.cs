@@ -12,5 +12,5 @@ public interface IDaqService : IAsyncDisposable
     Task StartAsync(DaqConfiguration config, CancellationToken cancellationToken = default);
     Task StopAsync(CancellationToken cancellationToken = default);
     Task<double[,]> ReadOnceAsync(DaqConfiguration config, int samplesPerChannel, CancellationToken cancellationToken = default);
-    IReadOnlyList<DaqDeviceInfo> EnumerateDevices();
+    Task<IReadOnlyList<DaqDeviceInfo>> EnumerateDevicesAsync(CancellationToken cancellationToken = default);
 }

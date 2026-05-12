@@ -29,20 +29,44 @@ else
 
         <div class="row g-3 mb-3">
             <div class="col-md-6">
-                <label class="form-label" for="deviceName">디바이스 이름</label>
+                <label class="form-label" for="deviceName">디바이스</label>
                 <div class="input-group">
-                    <input id="deviceName" class="form-control" @bind="_daq.DeviceName" />
-                    <button class="btn btn-outline-secondary" type="button" @onclick="RefreshDevices">새로고침</button>
+                    @if (_manualDeviceInput)
+                    {
+                        <input id="deviceName" class="form-control" @bind="_daq.DeviceName" placeholder="예: Dev1" />
+                    }
+                    else
+                    {
+                        <select id="deviceName" class="form-select" @bind="_daq.DeviceName">
+                            <option value="">— 디바이스 선택 —</option>
+                            @foreach (var d in _devices)
+                            {
+                                <option value="@d.Name">@d.Name — @d.ProductType (SN: @d.SerialNumber)</option>
+                            }
+                        </select>
+                    }
+                    <button class="btn btn-outline-secondary" type="button"
+                            @onclick="RefreshDevicesAsync" disabled="@_scanning">
+                        @(_scanning ? "검색중..." : "새로고침")
+                    </button>
                 </div>
-                @if (_devices.Count > 0)
+                <div class="form-check form-switch mt-1">
+                    <input class="form-check-input" type="checkbox" id="manualDev" @bind="_manualDeviceInput" />
+                    <label class="form-check-label small" for="manualDev">수동 입력 모드</label>
+                </div>
+                @if (!_manualDeviceInput && _devices.Count == 0 && !_scanning)
                 {
-                    <div class="form-text">
-                        감지된 디바이스:
-                        @foreach (var d in _devices)
-                        {
-                            <button type="button" class="btn btn-link btn-sm p-0 me-2" @onclick="() => _daq!.DeviceName = d.Name">@d.Name (@d.ProductType)</button>
-                        }
-                    </div>
+                    <div class="form-text text-warning">감지된 디바이스가 없습니다. 보드 연결 후 새로고침을 눌러 주세요.</div>
+                }
+                else if (!_manualDeviceInput && _devices.Count > 0
+                         && !string.IsNullOrEmpty(_daq.DeviceName)
+                         && !_devices.Any(d => d.Name == _daq.DeviceName))
+                {
+                    <div class="form-text text-warning">저장된 디바이스 "@_daq.DeviceName" 가 현재 감지되지 않습니다.</div>
+                }
+                else if (!_manualDeviceInput && _devices.Count > 0)
+                {
+                    <div class="form-text">@_devices.Count 개 감지됨</div>
                 }
             </div>
         </div>
@@ -51,6 +75,38 @@ else
             <button class="btn btn-success" @onclick="StartAsync" disabled="@(!CanStart)">Start</button>
             <button class="btn btn-danger" @onclick="StopAsync" disabled="@(!CanStop)">Stop</button>
         </div>
+    </section>
+
+    <section class="mb-4">
+        <h3>실시간 통계</h3>
+        @{ LiveStats? s; lock (_statsLock) { s = _stats; } }
+        @if (s is null || DaqService.State != DaqServiceState.Running)
+        {
+            <p class="text-muted small">(대기 중)</p>
+        }
+        else
+        {
+            <div class="small mb-2">
+                청크: @s.TotalChunks · 샘플: @s.TotalSamples ·
+                실효 @s.EffectiveRateHz.ToString("F1") Hz / 설정 @s.SampleRateHz.ToString("F0") Hz ·
+                최종 @s.LastUtc.ToLocalTime().ToString("HH:mm:ss.fff")
+            </div>
+            <table class="table table-sm table-bordered mb-0">
+                <thead><tr><th>채널</th><th>현재</th><th>Min</th><th>Max</th><th>Mean</th></tr></thead>
+                <tbody>
+                    @for (int i = 0; i < s.ChannelNames.Length; i++)
+                    {
+                        <tr>
+                            <td>@s.ChannelNames[i]</td>
+                            <td>@s.Latest[i].ToString("F4")</td>
+                            <td>@s.Min[i].ToString("F4")</td>
+                            <td>@s.Max[i].ToString("F4")</td>
+                            <td>@s.Mean[i].ToString("F4")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
 
     <section class="mb-4">
@@ -145,6 +201,8 @@ else
     private List<ChannelEdit> _channelEdits = new();
     private IReadOnlyList<DaqDeviceInfo> _devices = Array.Empty<DaqDeviceInfo>();
     private bool _busy;
+    private bool _scanning;
+    private bool _manualDeviceInput;
     private DateTimeOffset? _savedAt;
     private string? _error;
     private string? _lastFault;
@@ -156,8 +214,9 @@ else
 
         DaqService.StateChanged += OnDaqStateChanged;
         DaqService.AcquisitionFaulted += OnDaqFaulted;
+        DaqService.SamplesAcquired += OnSamplesAcquired;
 
-        RefreshDevices();
+        await RefreshDevicesAsync();
     }
 
     private void ApplyLoaded(DaqConfiguration daq, PhaseConfiguration phase)
@@ -184,15 +243,23 @@ else
         }).ToList();
     }
 
-    private void RefreshDevices()
+    private async Task RefreshDevicesAsync()
     {
+        _scanning = true;
+        _error = null;
+        StateHasChanged();
         try
         {
-            _devices = DaqService.EnumerateDevices();
+            _devices = await DaqService.EnumerateDevicesAsync();
         }
         catch (Exception ex)
         {
             _error = $"디바이스 열거 실패: {ex.Message}";
+            _devices = Array.Empty<DaqDeviceInfo>();
+        }
+        finally
+        {
+            _scanning = false;
         }
     }
 
@@ -246,6 +313,7 @@ else
             await SettingsStore.SaveAsync(daq, _phase!);
             _daq = daq;
             _savedAt = DateTimeOffset.UtcNow;
+            lock (_statsLock) { _stats = null; _lastRenderTicks = 0; }
             await DaqService.StartAsync(daq);
         }
         catch (Exception ex)
@@ -302,7 +370,78 @@ else
     {
         DaqService.StateChanged -= OnDaqStateChanged;
         DaqService.AcquisitionFaulted -= OnDaqFaulted;
+        DaqService.SamplesAcquired -= OnSamplesAcquired;
         return ValueTask.CompletedTask;
+    }
+
+    private LiveStats? _stats;
+    private readonly object _statsLock = new();
+    private long _lastRenderTicks;
+    private static readonly long RenderThrottleTicks = TimeSpan.FromMilliseconds(200).Ticks;
+
+    private void OnSamplesAcquired(object? sender, DaqSamplesEventArgs e)
+    {
+        var chCount = e.Samples.GetLength(0);
+        var sampleCount = e.Samples.GetLength(1);
+        if (chCount == 0 || sampleCount == 0) return;
+
+        bool render;
+        lock (_statsLock)
+        {
+            if (_stats is null || _stats.ChannelNames.Length != chCount)
+            {
+                _stats = new LiveStats
+                {
+                    ChannelNames = e.ChannelNames.ToArray(),
+                    Latest = new double[chCount],
+                    Min = new double[chCount],
+                    Max = new double[chCount],
+                    Mean = new double[chCount],
+                    StartedUtc = e.TimestampUtc,
+                    SampleRateHz = e.SampleRateHz,
+                };
+            }
+            for (int c = 0; c < chCount; c++)
+            {
+                double min = double.PositiveInfinity, max = double.NegativeInfinity, sum = 0;
+                for (int sIdx = 0; sIdx < sampleCount; sIdx++)
+                {
+                    var v = e.Samples[c, sIdx];
+                    if (v < min) min = v;
+                    if (v > max) max = v;
+                    sum += v;
+                }
+                _stats.Latest[c] = e.Samples[c, sampleCount - 1];
+                _stats.Min[c] = min;
+                _stats.Max[c] = max;
+                _stats.Mean[c] = sum / sampleCount;
+            }
+            _stats.TotalChunks++;
+            _stats.TotalSamples += sampleCount;
+            _stats.LastUtc = e.TimestampUtc;
+            var elapsed = (e.TimestampUtc - _stats.StartedUtc).TotalSeconds;
+            _stats.EffectiveRateHz = elapsed > 0 ? _stats.TotalSamples / elapsed : 0;
+
+            var now = DateTime.UtcNow.Ticks;
+            render = now - _lastRenderTicks >= RenderThrottleTicks;
+            if (render) _lastRenderTicks = now;
+        }
+        if (render) _ = InvokeAsync(StateHasChanged);
+    }
+
+    private sealed class LiveStats
+    {
+        public string[] ChannelNames = Array.Empty<string>();
+        public double[] Latest = Array.Empty<double>();
+        public double[] Min = Array.Empty<double>();
+        public double[] Max = Array.Empty<double>();
+        public double[] Mean = Array.Empty<double>();
+        public long TotalChunks;
+        public long TotalSamples;
+        public DateTimeOffset LastUtc;
+        public DateTimeOffset StartedUtc;
+        public double SampleRateHz;
+        public double EffectiveRateHz;
     }
 
     private sealed class ChannelEdit

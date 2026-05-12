@@ -8,7 +8,9 @@
       "Bash(git *)",
       "Bash(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\" -Filter \"*.csproj\" -Recurse)",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\\\\RGMS\\\\RGMS\" -Recurse -Include \"*.razor\", \"*.cs\", \"*.css\")"
+      "Bash(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\\\\RGMS\\\\RGMS\" -Recurse -Include \"*.razor\", \"*.cs\", \"*.css\")",
+      "Bash(Get-ChildItem *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\\\\RGMS\\\\\" -Force | Select-Object Name, @{N='IsDir';E={$_.PSIsContainer}} | Format-Table -AutoSize)"
     ]
   }
 }

@@ -96,15 +96,19 @@ public sealed class SimulatedDaqService : IDaqService
         return Task.FromResult(data);
     }
 
-    public IReadOnlyList<DaqDeviceInfo> EnumerateDevices() => new[]
+    public Task<IReadOnlyList<DaqDeviceInfo>> EnumerateDevicesAsync(CancellationToken cancellationToken = default)
     {
-        new DaqDeviceInfo(
-            Name: "Sim1",
-            ProductType: "USB-6001 (Simulated)",
-            SerialNumber: "SIM-0001",
-            AnalogInputChannels: new[] { "Sim1/ai0", "Sim1/ai1" },
-            AnalogOutputChannels: Array.Empty<string>()),
-    };
+        IReadOnlyList<DaqDeviceInfo> list = new[]
+        {
+            new DaqDeviceInfo(
+                Name: "Sim1",
+                ProductType: "USB-6001 (Simulated)",
+                SerialNumber: "SIM-0001",
+                AnalogInputChannels: new[] { "Sim1/ai0", "Sim1/ai1" },
+                AnalogOutputChannels: Array.Empty<string>()),
+        };
+        return Task.FromResult(list);
+    }
 
     public async ValueTask DisposeAsync()
     {
