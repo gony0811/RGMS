@@ -46,3 +46,12 @@ The SDK is pinned by `global.json` to **8.0.0** with `rollForward: latestMinor`.
 - AI1에 비접촉 레이저 거리 측정기의 시그널이 입력됨
     . KEYENCE사 IL-1000, IL-S100
 
+## UI 설계
+# 설정 페이지
+- DAQ 보드 channel, sampling rate, Start/Stop, DAQ 보드 연결 상태, DAQ 보드 연결 설정
+- 설정 phase : gate on phase (-45도) / off phase (예 +45도)
+# 측정 결과 페이지
+    . 측정 결과 그래프
+    . 측정 결과 테이블
+    . 측정 결과 저장
+    . 포토디텍터로 측정한 beam on/off trigger와 레이저 거리 측정기로 측정한 호흡파형 (SINE/COSINE WAVE) PHASE가 설정한 PHASE에서 얼마나 차이가 있는지 비교

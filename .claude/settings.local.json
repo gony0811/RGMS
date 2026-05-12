@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"C:\\\\Program Files\\\\dotnet\" -Force | Select-Object Name; Write-Output \"---\"; Get-ChildItem \"C:\\\\Program Files\\\\dotnet\\\\sdk\" -ErrorAction SilentlyContinue | Select-Object Name; Write-Output \"---PATH---\"; $env:PATH -split ';' | Where-Object { $_ -match 'dotnet' })",
+      "PowerShell(Get-Command *)",
+      "Bash(dotnet *)",
+      "Bash(where dotnet *)",
+      "Bash(git *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\" -Filter \"*.csproj\" -Recurse)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"C:\\\\GitHub\\\\RGMS\\\\RGMS\\\\RGMS\" -Recurse -Include \"*.razor\", \"*.cs\", \"*.css\")"
+    ]
+  }
+}

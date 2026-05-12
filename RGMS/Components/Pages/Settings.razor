@@ -1,0 +1,316 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using RGMS.Lib.Data
+@using RGMS.Lib.Service
+@inject ISettingsStore SettingsStore
+@inject IDaqService DaqService
+@implements IAsyncDisposable
+
+<PageTitle>설정</PageTitle>
+
+<h1>설정</h1>
+
+@if (_daq is null || _phase is null)
+{
+    <p><em>불러오는 중...</em></p>
+}
+else
+{
+    <section class="mb-4">
+        <h3>DAQ 보드 연결</h3>
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <span>상태:</span>
+            <span class="badge @StateBadgeClass(DaqService.State)">@DaqService.State</span>
+            @if (_lastFault is not null)
+            {
+                <span class="text-danger small">⚠ @_lastFault</span>
+            }
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label" for="deviceName">디바이스 이름</label>
+                <div class="input-group">
+                    <input id="deviceName" class="form-control" @bind="_daq.DeviceName" />
+                    <button class="btn btn-outline-secondary" type="button" @onclick="RefreshDevices">새로고침</button>
+                </div>
+                @if (_devices.Count > 0)
+                {
+                    <div class="form-text">
+                        감지된 디바이스:
+                        @foreach (var d in _devices)
+                        {
+                            <button type="button" class="btn btn-link btn-sm p-0 me-2" @onclick="() => _daq!.DeviceName = d.Name">@d.Name (@d.ProductType)</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-success" @onclick="StartAsync" disabled="@(!CanStart)">Start</button>
+            <button class="btn btn-danger" @onclick="StopAsync" disabled="@(!CanStop)">Stop</button>
+        </div>
+    </section>
+
+    <section class="mb-4">
+        <h3>샘플링</h3>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label" for="sampleRate">Sample Rate (Hz)</label>
+                <input id="sampleRate" type="number" step="1" min="1" class="form-control" @bind="_daq.SampleRateHz" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="spc">Samples per channel / callback</label>
+                <input id="spc" type="number" step="1" min="1" class="form-control" @bind="_daq.SamplesPerChannelPerCallback" />
+            </div>
+        </div>
+    </section>
+
+    <section class="mb-4">
+        <h3>채널</h3>
+        <div class="row g-3">
+            @for (var i = 0; i < _channelEdits.Count; i++)
+            {
+                var idx = i;
+                var ch = _channelEdits[idx];
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">CH @idx — @(ch.Name ?? "(unnamed)")</h5>
+                            <div class="mb-2">
+                                <label class="form-label">Physical Channel</label>
+                                <input class="form-control" @bind="ch.PhysicalChannel" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Name</label>
+                                <input class="form-control" @bind="ch.Name" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Terminal</label>
+                                <select class="form-select" @bind="ch.Terminal">
+                                    @foreach (var t in Enum.GetValues<DaqTerminalConfig>())
+                                    {
+                                        <option value="@t">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col">
+                                    <label class="form-label">Min (V)</label>
+                                    <input type="number" step="0.1" class="form-control" @bind="ch.MinVolts" />
+                                </div>
+                                <div class="col">
+                                    <label class="form-label">Max (V)</label>
+                                    <input type="number" step="0.1" class="form-control" @bind="ch.MaxVolts" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="mb-4">
+        <h3>Phase 설정</h3>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label" for="gateOn">Gate ON phase (°)</label>
+                <input id="gateOn" type="number" step="1" class="form-control" @bind="_phase.GateOnPhaseDeg" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="gateOff">Gate OFF phase (°)</label>
+                <input id="gateOff" type="number" step="1" class="form-control" @bind="_phase.GateOffPhaseDeg" />
+            </div>
+        </div>
+    </section>
+
+    <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">저장</button>
+        @if (_savedAt is not null)
+        {
+            <span class="text-success small">✓ 저장 완료 (@_savedAt.Value.ToLocalTime().ToString("HH:mm:ss"))</span>
+        }
+        @if (_error is not null)
+        {
+            <span class="text-danger small">⚠ @_error</span>
+        }
+    </div>
+}
+
+@code {
+    private DaqConfiguration? _daq;
+    private PhaseConfiguration? _phase;
+    private List<ChannelEdit> _channelEdits = new();
+    private IReadOnlyList<DaqDeviceInfo> _devices = Array.Empty<DaqDeviceInfo>();
+    private bool _busy;
+    private DateTimeOffset? _savedAt;
+    private string? _error;
+    private string? _lastFault;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (daq, phase) = await SettingsStore.LoadAsync();
+        ApplyLoaded(daq, phase);
+
+        DaqService.StateChanged += OnDaqStateChanged;
+        DaqService.AcquisitionFaulted += OnDaqFaulted;
+
+        RefreshDevices();
+    }
+
+    private void ApplyLoaded(DaqConfiguration daq, PhaseConfiguration phase)
+    {
+        _daq = new DaqConfiguration
+        {
+            DeviceName = daq.DeviceName,
+            SampleRateHz = daq.SampleRateHz,
+            SamplesPerChannelPerCallback = daq.SamplesPerChannelPerCallback,
+            Channels = daq.Channels,
+        };
+        _phase = new PhaseConfiguration
+        {
+            GateOnPhaseDeg = phase.GateOnPhaseDeg,
+            GateOffPhaseDeg = phase.GateOffPhaseDeg,
+        };
+        _channelEdits = daq.Channels.Select(c => new ChannelEdit
+        {
+            PhysicalChannel = c.PhysicalChannel,
+            Name = c.Name,
+            Terminal = c.Terminal,
+            MinVolts = c.MinVolts,
+            MaxVolts = c.MaxVolts,
+        }).ToList();
+    }
+
+    private void RefreshDevices()
+    {
+        try
+        {
+            _devices = DaqService.EnumerateDevices();
+        }
+        catch (Exception ex)
+        {
+            _error = $"디바이스 열거 실패: {ex.Message}";
+        }
+    }
+
+    private DaqConfiguration BuildDaq()
+    {
+        return new DaqConfiguration
+        {
+            DeviceName = _daq!.DeviceName,
+            SampleRateHz = _daq.SampleRateHz,
+            SamplesPerChannelPerCallback = _daq.SamplesPerChannelPerCallback,
+            Channels = _channelEdits.Select(c => new DaqChannelConfig
+            {
+                PhysicalChannel = c.PhysicalChannel,
+                Name = c.Name,
+                Terminal = c.Terminal,
+                MinVolts = c.MinVolts,
+                MaxVolts = c.MaxVolts,
+            }).ToArray(),
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var daq = BuildDaq();
+            await SettingsStore.SaveAsync(daq, _phase!);
+            _daq = daq;
+            _savedAt = DateTimeOffset.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        _busy = true;
+        _error = null;
+        _lastFault = null;
+        try
+        {
+            var daq = BuildDaq();
+            await SettingsStore.SaveAsync(daq, _phase!);
+            _daq = daq;
+            _savedAt = DateTimeOffset.UtcNow;
+            await DaqService.StartAsync(daq);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await DaqService.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool CanStart => !_busy && DaqService.State is DaqServiceState.Idle or DaqServiceState.Faulted;
+    private bool CanStop => !_busy && DaqService.State is DaqServiceState.Running or DaqServiceState.Starting;
+
+    private static string StateBadgeClass(DaqServiceState state) => state switch
+    {
+        DaqServiceState.Running => "bg-success",
+        DaqServiceState.Starting or DaqServiceState.Stopping => "bg-warning text-dark",
+        DaqServiceState.Faulted => "bg-danger",
+        _ => "bg-secondary",
+    };
+
+    private async void OnDaqStateChanged(object? sender, DaqServiceState state)
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnDaqFaulted(object? sender, DaqFaultEventArgs e)
+    {
+        _lastFault = e.Exception.Message;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        DaqService.StateChanged -= OnDaqStateChanged;
+        DaqService.AcquisitionFaulted -= OnDaqFaulted;
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class ChannelEdit
+    {
+        public string PhysicalChannel { get; set; } = string.Empty;
+        public string? Name { get; set; }
+        public DaqTerminalConfig Terminal { get; set; } = DaqTerminalConfig.Rse;
+        public double MinVolts { get; set; } = -10.0;
+        public double MaxVolts { get; set; } = 10.0;
+    }
+}
